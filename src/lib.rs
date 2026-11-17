@@ -2,7 +2,7 @@
 //!
 //! [bg]: https://benchmarksgame-team.pages.debian.net/benchmarksgame/description/mandelbrot.html#mandelbrot
 
-#![feature(portable_simd)]
+#![cfg_attr(feature = "nightly", feature(portable_simd))]
 
 use rayon::prelude::*;
 use std::{io, ops};
@@ -20,9 +20,12 @@ use std::{io, ops};
 mod autovectorization_par;
 #[cfg(feature = "ispc")]
 mod ispc_tasks;
+mod ndarray_par;
 mod pulp_par;
 mod scalar_par;
+#[cfg(feature = "nightly")]
 mod simd_par;
+mod wide8_par;
 mod wide_par;
 
 type Range = ops::Range<f64>;
@@ -46,6 +49,10 @@ pub enum Algorithm {
     Ispc,
     /// Parallel SIMD algorithm using Rayon and pulp crate
     Pulp,
+    /// Parallel SIMD algorithm using Rayon and wide crate, 8 f64 lanes
+    Wide8,
+    /// Parallel SIMD algorithm using Rayon and ndarray::simd (F64x8)
+    Ndarray,
 }
 
 pub struct Mandelbrot {
@@ -54,6 +61,11 @@ pub struct Mandelbrot {
 }
 
 impl Mandelbrot {
+    /// Iteration counts, row-major.
+    pub fn data(&self) -> &[u32] {
+        &self.data
+    }
+
     /// Generates a new image of the Mandelbrot fractal.
     pub fn generate(dims: Dimensions, algo: Algorithm) -> Self {
         Self::generate_region(dims, DEFAULT_REGION, algo)
@@ -64,12 +76,17 @@ impl Mandelbrot {
     pub fn generate_region(dims: Dimensions, region: Region, algo: Algorithm) -> Self {
         let data = match algo {
             Algorithm::Scalar => scalar_par::generate(dims, region.0, region.1),
+            #[cfg(feature = "nightly")]
             Algorithm::Simd => simd_par::generate(dims, region.0, region.1),
+            #[cfg(not(feature = "nightly"))]
+            Algorithm::Simd => unimplemented!("std::simd arm needs the `nightly` feature"),
             Algorithm::AutoVectorization => {
                 autovectorization_par::generate(dims, region.0, region.1)
             }
             Algorithm::Wide => wide_par::generate(dims, region.0, region.1),
             Algorithm::Pulp => pulp_par::generate(dims, region.0, region.1),
+            Algorithm::Wide8 => wide8_par::generate(dims, region.0, region.1),
+            Algorithm::Ndarray => ndarray_par::generate(dims, region.0, region.1),
             #[cfg(feature = "ispc")]
             Algorithm::Ispc => ispc_tasks::generate(dims, region.0, region.1),
             #[cfg(not(feature = "ispc"))]
@@ -209,9 +226,12 @@ mod tests {
         let scalar = scalar_par::generate(dims, DEFAULT_REGION.0, DEFAULT_REGION.1);
         assert_eq!(scalar.len(), width * height);
 
-        eprintln!("Generating Mandelbrot with SIMD algorithm");
-        let simd = simd_par::generate(dims, DEFAULT_REGION.0, DEFAULT_REGION.1);
-        verify(&simd[..], &scalar[..]);
+        #[cfg(feature = "nightly")]
+        {
+            eprintln!("Generating Mandelbrot with SIMD algorithm");
+            let simd = simd_par::generate(dims, DEFAULT_REGION.0, DEFAULT_REGION.1);
+            verify(&simd[..], &scalar[..]);
+        }
 
         eprintln!("Generating Mandelbrot with autovectorized algorithm");
         let simd = autovectorization_par::generate(dims, DEFAULT_REGION.0, DEFAULT_REGION.1);
@@ -223,6 +243,14 @@ mod tests {
 
         eprintln!("Generating Mandelbrot with pulp algorithm");
         let simd = pulp_par::generate(dims, DEFAULT_REGION.0, DEFAULT_REGION.1);
+        verify(&simd[..], &scalar[..]);
+
+        eprintln!("Generating Mandelbrot with wide (8 lanes) algorithm");
+        let simd = wide8_par::generate(dims, DEFAULT_REGION.0, DEFAULT_REGION.1);
+        verify(&simd[..], &scalar[..]);
+
+        eprintln!("Generating Mandelbrot with ndarray::simd algorithm");
+        let simd = ndarray_par::generate(dims, DEFAULT_REGION.0, DEFAULT_REGION.1);
         verify(&simd[..], &scalar[..]);
     }
 
@@ -267,6 +295,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "nightly")]
     #[cfg_attr(windows, ignore)]
     fn verify_output_simd() {
         verify_algo(Algorithm::Simd);
