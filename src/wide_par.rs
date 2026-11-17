@@ -49,7 +49,7 @@ fn get_count(start: &Complex) -> i64s {
         // [4.0, 4.0, 4.0, 4.0]
         //           ↓
         // [  1,   0,   1,   0,   1,   1,   1,   0]
-        let undiverged_mask = (rr + ii).cmp_le(threshold_mask);
+        let undiverged_mask = (rr + ii).simd_le(threshold_mask);
 
         // Stop the iteration if they all diverged.
         if !undiverged_mask.any() {
@@ -57,7 +57,7 @@ fn get_count(start: &Complex) -> i64s {
         }
 
         // For undiverged lanes add 1, for diverged lanes add 0.
-        count += undiverged_mask.blend(f64s::splat(1.0), f64s::splat(0.0));
+        count += undiverged_mask.select(f64s::splat(1.0), f64s::splat(0.0));
 
         // Same calculation as scalar algorithm, but hopefully doing 4
         // operations in a single SIMD CPU instruction.

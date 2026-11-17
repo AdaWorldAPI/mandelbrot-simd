@@ -25,7 +25,7 @@ fn get_count<S: Simd>(simd: S, real: S::f64s, imag: S::f64s) -> S::u64s {
         if simd.first_true_m64s(undiverged_mask) == S::F64_LANES {
             break;
         }
-        count = simd.select_u64s_m64s(
+        count = simd.select_u64s(
             undiverged_mask,
             simd.add_u64s(count, simd.splat_u64s(1)),
             count,

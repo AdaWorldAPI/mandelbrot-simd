@@ -10,7 +10,7 @@ rayon = "^1.0"
 ispc = { version = "^1.0.4", optional = true }
 structopt = { version = "0.3.0", features = ["color"] }
 wide = "1.7.1"
-pulp = { version = "0.23.0", features = ["x86-v4"] }
+pulp = { version = "0.22.3", features = ["x86-v4"] }
 ndarray = { path = "../ndarray", default-features = false, features = ["std"] }
 bytemuck = "1.20.0"
 
