@@ -27,7 +27,7 @@ struct Opt {
     algo: String,
 }
 
-const ALGORITHMS: &[&str] = &["scalar", "simd", "autovect", "ispc", "wide", "pulp"];
+const ALGORITHMS: &[&str] = &["scalar", "simd", "autovect", "ispc", "wide", "wide8", "pulp", "ndarray"];
 
 fn main() {
     let opt = Opt::from_args();
@@ -38,6 +38,8 @@ fn main() {
         "autovect" => Algorithm::AutoVectorization,
         "wide" => Algorithm::Wide,
         "pulp" => Algorithm::Pulp,
+        "wide8" => Algorithm::Wide8,
+        "ndarray" => Algorithm::Ndarray,
         "ispc" => Algorithm::Ispc,
         algo => panic!(
             "Unknown algorithm: {:?}\nAvailable algorithms: {:?}",
