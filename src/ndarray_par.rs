@@ -7,6 +7,7 @@
 
 use crate::*;
 use ndarray::simd::F64x8;
+use std::mem::MaybeUninit;
 
 #[allow(non_camel_case_types)]
 type f64s = F64x8;
@@ -15,7 +16,7 @@ const LANES: usize = 8;
 /// Returns the number of iterations it takes for the Mandelbrot sequence
 /// to diverge at each lane, or `ITER_LIMIT` if it doesn't diverge.
 #[inline(always)]
-fn get_count(real: f64s, imag: f64s) -> [f64; LANES] {
+fn get_count(real: f64s, imag: f64s) -> [u64; LANES] {
     let mut cur_re = real;
     let mut cur_im = imag;
     let mut count = f64s::splat(0.0);
@@ -37,7 +38,12 @@ fn get_count(real: f64s, imag: f64s) -> [f64; LANES] {
         cur_re = real + (rr - ii);
         cur_im = imag + (ri + ri);
     }
-    count.to_array()
+    // The count is an exact integer in 0..=ITER_LIMIT held in an f64. Adding
+    // 2^52 is exact for such values and leaves the integer in the low mantissa
+    // bits, so the conversion is one vector add and a bit reinterpretation,
+    // with no per-lane float-to-int cast.
+    const TWO_52: f64 = 4_503_599_627_370_496.0;
+    (count + f64s::splat(TWO_52)).to_bits().to_array()
 }
 
 pub fn generate(dims: Dimensions, xr: Range, yr: Range) -> Vec<u32> {
@@ -64,16 +70,26 @@ pub fn generate(dims: Dimensions, xr: Range, yr: Range) -> Vec<u32> {
         .collect();
 
     let dy = (yr.end - yr.start) / (height as f64);
-    let mut out = vec![0u32; width * height];
 
-    out.par_chunks_mut(width).enumerate().for_each(|(i, row)| {
-        let y = f64s::splat(yr.start + dy * (i as f64));
-        for (x, dst) in xs.iter().zip(row.chunks_exact_mut(LANES)) {
-            let counts = get_count(*x, y);
-            for (d, c) in dst.iter_mut().zip(counts.iter()) {
-                *d = *c as u32;
+    // Same allocation strategy as the wide and pulp arms: write into the
+    // vector's uninitialized spare capacity, so no 41 MB zero-fill sits inside
+    // the timed region.
+    let mut out: Vec<u32> = Vec::with_capacity(width * height);
+    out.spare_capacity_mut()[..width * height]
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(i, row)| {
+            let y = f64s::splat(yr.start + dy * (i as f64));
+            // Fixed-size chunks (`as_chunks_mut`): each block is LANES slots,
+            // written as one array expression.
+            let (blocks, _) = row.as_chunks_mut::<LANES>();
+            for (x, dst) in xs.iter().zip(blocks) {
+                *dst = get_count(*x, y).map(|bits| MaybeUninit::new(bits as u32));
             }
-        }
-    });
+        });
+    // SAFETY: `width` is a multiple of LANES (asserted above), so the loop
+    // above initialized every one of the first `width * height` elements, and
+    // the capacity is at least that.
+    unsafe { out.set_len(width * height) };
     out
 }
