@@ -8,6 +8,7 @@
 use crate::*;
 use ndarray::simd::F64x8;
 
+#[allow(non_camel_case_types)]
 type f64s = F64x8;
 const LANES: usize = 8;
 
